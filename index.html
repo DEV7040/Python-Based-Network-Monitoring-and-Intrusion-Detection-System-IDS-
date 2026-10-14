@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CNL LAB — Network IDS</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+    <div class="ambient" aria-hidden="true"></div>
+
+    <header class="hero">
+        <div class="brand-block">
+            <p class="eyebrow">Intrusion Detection</p>
+            <h1 class="brand">CNL LAB</h1>
+            <p class="tagline">Live packet inspection and anomaly detection for your local network.</p>
+        </div>
+        <div class="status-block">
+            <span class="live-dot" aria-hidden="true"></span>
+            <div>
+                <p class="status-label">Monitor status</p>
+                <p class="status-value" id="statusText">Listening</p>
+            </div>
+        </div>
+    </header>
+
+    <section class="stats" aria-label="Protocol statistics">
+        <article class="stat" data-proto="total">
+            <span class="stat-label">Total packets</span>
+            <span class="stat-value" id="total">0</span>
+        </article>
+        <article class="stat" data-proto="tcp">
+            <span class="stat-label">TCP</span>
+            <span class="stat-value" id="tcp">0</span>
+        </article>
+        <article class="stat" data-proto="udp">
+            <span class="stat-label">UDP</span>
+            <span class="stat-value" id="udp">0</span>
+        </article>
+        <article class="stat" data-proto="icmp">
+            <span class="stat-label">ICMP</span>
+            <span class="stat-value" id="icmp">0</span>
+        </article>
+        <article class="stat" data-proto="other">
+            <span class="stat-label">Other</span>
+            <span class="stat-value" id="other">0</span>
+        </article>
+    </section>
+
+    <main class="panels">
+        <section class="panel traffic">
+            <div class="panel-head">
+                <h2>Live traffic</h2>
+                <p>Last 20 captured packets</p>
+            </div>
+            <div class="table-wrap">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Time</th>
+                            <th>Source</th>
+                            <th>Destination</th>
+                            <th>Protocol</th>
+                            <th>Port</th>
+                        </tr>
+                    </thead>
+                    <tbody id="packetTable"></tbody>
+                </table>
+                <p class="empty-state" id="trafficEmpty">Waiting for packets…</p>
+            </div>
+        </section>
+
+        <section class="panel alerts-panel">
+            <div class="panel-head">
+                <h2>Intrusion alerts</h2>
+                <p id="alertCount">0 active</p>
+            </div>
+            <div id="alerts" class="alerts">
+                <p class="empty-state">No alerts detected.</p>
+            </div>
+        </section>
+    </main>
+
+    <script>
+        function protocolClass(protocol) {
+            const p = (protocol || "").toLowerCase();
+            if (p === "tcp" || p === "udp" || p === "icmp") return p;
+            return "other";
+        }
+
+        function severityClass(severity) {
+            const s = (severity || "").toLowerCase();
+            if (s === "high") return "high";
+            if (s === "medium") return "medium";
+            return "low";
+        }
+
+        function updateDashboard() {
+            fetch("/api/data")
+                .then(response => response.json())
+                .then(data => {
+                    document.getElementById("total").textContent = data.total;
+                    document.getElementById("tcp").textContent = data.tcp;
+                    document.getElementById("udp").textContent = data.udp;
+                    document.getElementById("icmp").textContent = data.icmp;
+
+                    const otherEl = document.getElementById("other");
+                    if (otherEl) otherEl.textContent = data.other ?? 0;
+
+                    const table = document.getElementById("packetTable");
+                    const trafficEmpty = document.getElementById("trafficEmpty");
+                    table.innerHTML = "";
+
+                    if (!data.packets || data.packets.length === 0) {
+                        trafficEmpty.hidden = false;
+                    } else {
+                        trafficEmpty.hidden = true;
+                        data.packets.forEach(packet => {
+                            const row = document.createElement("tr");
+                            row.innerHTML = `
+                                <td class="mono">${packet.time}</td>
+                                <td class="mono">${packet.src_ip}</td>
+                                <td class="mono">${packet.dst_ip}</td>
+                                <td><span class="proto ${protocolClass(packet.protocol)}">${packet.protocol}</span></td>
+                                <td class="mono">${packet.dst_port}</td>
+                            `;
+                            table.appendChild(row);
+                        });
+                    }
+
+                    const alertBox = document.getElementById("alerts");
+                    const alertCount = document.getElementById("alertCount");
+                    alertBox.innerHTML = "";
+                    alertCount.textContent = `${data.alerts.length} active`;
+
+                    if (data.alerts.length === 0) {
+                        alertBox.innerHTML = `<p class="empty-state">No alerts detected.</p>`;
+                    } else {
+                        data.alerts.forEach(alert => {
+                            const div = document.createElement("div");
+                            div.className = `alert ${severityClass(alert.severity)}`;
+                            div.innerHTML = `
+                                <div class="alert-top">
+                                    <strong>${alert.type}</strong>
+                                    <span class="sev">${alert.severity}</span>
+                                </div>
+                                <p class="alert-desc">${alert.description}</p>
+                                <div class="alert-meta">
+                                    <span class="mono">${alert.source_ip}</span>
+                                    <span class="mono">${alert.time}</span>
+                                </div>
+                            `;
+                            alertBox.appendChild(div);
+                        });
+                    }
+                })
+                .catch(error => {
+                    console.log("Error:", error);
+                    document.getElementById("statusText").textContent = "Offline";
+                });
+        }
+
+        setInterval(updateDashboard, 2000);
+        updateDashboard();
+    </script>
+</body>
+</html>
